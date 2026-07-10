@@ -41,11 +41,6 @@ id "$USER_NAME" >/dev/null
 }
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SYSTEMCTL="$(command -v systemctl)"
-[[ "$SYSTEMCTL" == "/bin/systemctl" ]] || {
-  echo "This installer expects systemctl at /bin/systemctl (Raspberry Pi OS Bookworm)." >&2
-  exit 1
-}
 
 apt-get update
 apt-get install -y --no-install-recommends python3 python3-evdev mpv alsa-utils curl sudo

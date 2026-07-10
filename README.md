@@ -71,7 +71,7 @@ installiert.
    Tasten-Dienst auch Sendspin und Raspotify:
 
    ```bash
-   sudo ./scripts/install.sh --user pi --card 1 --device 0 --with-sendspin --with-raspotify
+   sudo bash ./scripts/install.sh --user pi --card 1 --device 0 --with-sendspin --with-raspotify
    ```
 
    Ersetze `pi` durch den tatsächlichen Linux-Benutzer und die Kartennummern
