@@ -39,6 +39,11 @@ class ConfigTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             labels.render(b"background", b"{{DATUM}}", "2026-07-10")
 
+    def test_label_printer_name_cannot_escape_device_directory(self):
+        self.assertEqual(labels.printer_device("ente"), Path("/dev/zpl/ente"))
+        with self.assertRaises(ValueError):
+            labels.printer_device("../not-a-printer")
+
     def test_shipped_zpl_assets_render_a_complete_job(self):
         root = Path(__file__).parents[1] / "assets" / "labels"
         result = labels.render(

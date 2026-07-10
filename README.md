@@ -54,10 +54,12 @@ installiert.
 
    ```bash
    ls -l /dev/zpl/ente
-   command -v zpl-send
+   sudo -u pi test -w /dev/zpl/ente && echo "pi darf drucken"
    ```
 
-   Beide Befehle müssen einen Pfad ausgeben.
+   Der erste Befehl muss auf `/dev/usb/lp0` oder ähnlich zeigen; der zweite
+   muss `pi darf drucken` ausgeben. Der Labeldruck verwendet den Alias direkt
+   und benötigt kein separates Sender-Script.
 
 3. USB-Soundkarte verbinden und ihre Kartennummer nachsehen:
 
@@ -145,7 +147,7 @@ unterbricht nichts. Sollte F16 nicht drucken, prüfe zuerst:
 ```bash
 ls -l /dev/zpl/ente
 id pi
-zpl-send ente /usr/local/share/kuche-pi-audio/labels/opened_am_print_template_203.zpl
+sudo -u pi test -w /dev/zpl/ente && echo "Druckerzugriff OK"
 ```
 
 ## Bedienung ohne Tastatur

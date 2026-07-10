@@ -32,10 +32,9 @@ done
 [[ -n "$USER_NAME" && -n "$CARD" ]] || { usage >&2; exit 2; }
 id "$USER_NAME" >/dev/null
 
-# F16 deliberately depends on the separate udev setup. It provides both the
-# stable alias and the lock-aware sender; failing early avoids a half-working
-# installation where every label press silently fails.
-[[ -x /usr/local/bin/zpl-send && -e /dev/zpl/ente ]] || {
+# F16 deliberately depends on the separate pi-init udev setup. It provides the
+# stable device alias; failing early avoids a half-working installation.
+[[ -e /dev/zpl/ente ]] || {
   echo "ZPL-Drucker fehlt. Zuerst den Alias 'ente' mit Hartmannlight/pi-init einrichten." >&2
   exit 1
 }

@@ -5,9 +5,13 @@ from __future__ import annotations
 
 import argparse
 from datetime import date
+try:  # fcntl is available on Raspberry Pi OS; guard it for Windows unit tests.
+    import fcntl
+except ImportError:  # pragma: no cover
+    fcntl = None
+import os
 from pathlib import Path
 import re
-import subprocess
 import sys
 
 
@@ -16,6 +20,7 @@ BACKGROUND = ASSET_DIRECTORY / "opened_am_bg_203.zpl"
 TEMPLATE = ASSET_DIRECTORY / "opened_am_print_template_203.zpl"
 DATE_TOKEN = b"{{DATUM}}"
 DATE_FORMAT = re.compile(r"\d{2}\.\d{2}\.\d{4}\Z")
+PRINTER_NAME = re.compile(r"[A-Za-z0-9._-]+\Z")
 
 
 def render(background: bytes, template: bytes, label_date: str) -> bytes:
@@ -27,11 +32,36 @@ def render(background: bytes, template: bytes, label_date: str) -> bytes:
     return background.rstrip(b"\r\n") + b"\r\n" + template.replace(DATE_TOKEN, label_date.encode("ascii"))
 
 
+def printer_device(printer: str) -> Path:
+    if not PRINTER_NAME.fullmatch(printer):
+        raise ValueError("Ungültiger Druckername")
+    return Path("/dev/zpl") / printer
+
+
+def send_to_printer(printer: str, payload: bytes) -> None:
+    """Write a complete raw ZPL job while serialising simultaneous F16 presses."""
+    if fcntl is None:  # pragma: no cover - only relevant off Linux.
+        raise OSError("Raw-ZPL-Druck ist nur unter Linux verfügbar")
+    device = printer_device(printer)
+    lock_path = Path("/run/lock") / f"kuche-pi-label-{printer}.lock"
+    with open(lock_path, "a+b") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        descriptor = os.open(device, os.O_WRONLY | os.O_NOCTTY)
+        try:
+            remaining = memoryview(payload)
+            while remaining:
+                written = os.write(descriptor, remaining)
+                if written == 0:
+                    raise OSError("Drucker hat keine Daten angenommen")
+                remaining = remaining[written:]
+        finally:
+            os.close(descriptor)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Druckt das Tagesetikett auf dem ZPL-Drucker")
     parser.add_argument("--printer", default="ente", help="Name unter /dev/zpl (Standard: ente)")
     parser.add_argument("--date", default=date.today().strftime("%d.%m.%Y"), help="TT.MM.JJJJ; nur für einen Nachdruck")
-    parser.add_argument("--sender", default="/usr/local/bin/zpl-send")
     parser.add_argument("--dry-run", action="store_true", help="ZPL nur auf stdout ausgeben")
     arguments = parser.parse_args()
 
@@ -40,8 +70,8 @@ def main() -> None:
         if arguments.dry_run:
             sys.stdout.buffer.write(payload)
             return
-        subprocess.run([arguments.sender, arguments.printer, "-"], input=payload, check=True)
-    except (OSError, ValueError, subprocess.CalledProcessError) as error:
+        send_to_printer(arguments.printer, payload)
+    except (OSError, ValueError) as error:
         print(f"Etikett wurde nicht gedruckt: {error}", file=sys.stderr)
         raise SystemExit(1)
 
