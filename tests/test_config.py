@@ -61,7 +61,9 @@ class ConfigTests(unittest.TestCase):
             (root / "opened_am_print_template_203.zpl").read_bytes(),
             "10.07",
         )
-        self.assertTrue(result.startswith(b"~DGR:OPENLBL.GRF,12000,50,"))
+        self.assertTrue(result.startswith(b"~DGR:OPENLBL.GRF,9600,40,"))
+        self.assertIn(b"^PW320", result)
+        self.assertIn(b"^LL240", result)
         self.assertIn(b"^FD10.07^FS", result)
 
 

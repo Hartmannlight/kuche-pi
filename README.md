@@ -141,6 +141,15 @@ Für eine Druckvorschau ohne Ausgabe an den Drucker:
 /usr/local/lib/kuche-pi-audio/print-ente-label.py --dry-run > label.zpl
 ```
 
+Die Hintergrundgrafik wird beim Start von `audio-buttons.service` einmal in
+den Drucker-RAM geladen. Der Tastendruck sendet danach nur noch das aktuelle
+Datum. Nach einem separaten Neustart des Druckers kann der Cache ohne
+Etikettendruck erneuert werden:
+
+```bash
+/usr/local/lib/kuche-pi-audio/print-ente-label.py --cache-only --refresh-cache
+```
+
 Der Druckprozess wird bewusst unabhängig vom Audio-Dienst gestartet und
 unterbricht nichts. Sollte F16 nicht drucken, prüfe zuerst:
 
