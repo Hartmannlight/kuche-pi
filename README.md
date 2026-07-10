@@ -92,7 +92,7 @@ installiert.
    sudo reboot
    # nach der erneuten SSH-Anmeldung:
    speaker-test -D sharedout -c 2
-   /usr/local/lib/kuche-pi-audio/print-ente-label.py --date 10.07.2026
+   /usr/local/lib/kuche-pi-audio/print-ente-label.py --date 10.07
    systemctl status audio-buttons
    journalctl -u audio-buttons -f
    ```
@@ -127,12 +127,12 @@ das eigentliche Etikett. Dadurch funktioniert ein Druck auch direkt nach dem
 Einschalten des Druckers zuverlässig.
 
 `{{DATUM}}` wird automatisch mit dem lokalen Datum des Pi im Format
-`TT.MM.JJJJ` ersetzt, etwa `10.07.2026`. Das Druckprogramm akzeptiert kein
+`TT.MM` ersetzt, etwa `10.07`. Das Druckprogramm akzeptiert kein
 freies Datum über F16; dadurch kann kein ungültiger ZPL-Inhalt eingesetzt
 werden. Ein bewusstes Nachdrucken lässt sich so ausführen:
 
 ```bash
-/usr/local/lib/kuche-pi-audio/print-ente-label.py --date 10.07.2026
+/usr/local/lib/kuche-pi-audio/print-ente-label.py --date 10.07
 ```
 
 Für eine Druckvorschau ohne Ausgabe an den Drucker:

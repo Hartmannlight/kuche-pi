@@ -32,12 +32,12 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(daemon.KEY_ACTIONS["KEY_F20"]["source"], "dlf")
 
     def test_label_job_contains_date_and_background(self):
-        result = labels.render(b"~DGR:OPENLBL.GRF,1,1,AA\n", b"^XA^FD{{DATUM}}^FS^XZ\n", "10.07.2026")
-        self.assertEqual(result, b"~DGR:OPENLBL.GRF,1,1,AA\r\n^XA^FD10.07.2026^FS^XZ\n")
+        result = labels.render(b"~DGR:OPENLBL.GRF,1,1,AA\n", b"^XA^FD{{DATUM}}^FS^XZ\n", "10.07")
+        self.assertEqual(result, b"~DGR:OPENLBL.GRF,1,1,AA\r\n^XA^FD10.07^FS^XZ\n")
 
     def test_label_job_rejects_bad_date(self):
         with self.assertRaises(ValueError):
-            labels.render(b"background", b"{{DATUM}}", "2026-07-10")
+            labels.render(b"background", b"{{DATUM}}", "10.07.2026")
 
     def test_label_printer_name_cannot_escape_device_directory(self):
         self.assertEqual(labels.printer_device("ente"), Path("/dev/zpl/ente"))
@@ -49,10 +49,10 @@ class ConfigTests(unittest.TestCase):
         result = labels.render(
             (root / "opened_am_bg_203.zpl").read_bytes(),
             (root / "opened_am_print_template_203.zpl").read_bytes(),
-            "10.07.2026",
+            "10.07",
         )
         self.assertTrue(result.startswith(b"~DGR:OPENLBL.GRF,12000,50,"))
-        self.assertIn(b"^FD10.07.2026^FS", result)
+        self.assertIn(b"^FD10.07^FS", result)
 
 
 if __name__ == "__main__":

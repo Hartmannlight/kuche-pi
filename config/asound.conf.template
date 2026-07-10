@@ -3,7 +3,10 @@
 pcm.dmix_usb {
     type dmix
     ipc_key 1024
-    ipc_perm 0660
+    # Sendspin runs as its own user while the button daemon runs as pi.  dmix
+    # uses a System-V shared-memory segment, so both local service users need
+    # access to it.
+    ipc_perm 0666
     slave {
         pcm "hw:@CARD@,@DEVICE@"
         # This USB PnP adapter exposes 44.1 kHz as its native rate.  Keeping
