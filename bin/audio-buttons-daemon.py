@@ -30,14 +30,14 @@ except ImportError:  # pragma: no cover - Linux always provides grp.
 LOG = logging.getLogger("kuche_pi_audio")
 SOCKET_PATH = "/run/kuche-pi-audio/control.sock"
 KEY_ACTIONS = {
-    "KEY_F13": {"action": "stop"},
-    "KEY_F14": {"action": "play", "source": "tagesschau"},
-    "KEY_F15": {"action": "play", "source": "dlf_kultur"},
-    "KEY_F16": {"action": "labels"},
-    "KEY_F17": {"action": "play", "source": "swr1"},
-    "KEY_F18": {"action": "play", "source": "querfunk"},
-    "KEY_F19": {"action": "play", "source": "rock_antenne"},
-    "KEY_F20": {"action": "play", "source": "dlf"},
+    "KEY_F13": {"action": "play", "source": "swr1"},
+    "KEY_F14": {"action": "stop"},
+    "KEY_F15": {"action": "play", "source": "querfunk"},
+    "KEY_F16": {"action": "play", "source": "tagesschau"},
+    "KEY_F17": {"action": "play", "source": "rock_antenne"},
+    "KEY_F18": {"action": "play", "source": "dlf_kultur"},
+    "KEY_F19": {"action": "play", "source": "dlf"},
+    "KEY_F20": {"action": "labels"},
 }
 
 

@@ -8,10 +8,9 @@ pcm.dmix_usb {
     # access to it.
     ipc_perm 0666
     slave {
-        pcm "hw:@CARD@,@DEVICE@"
-        # This USB PnP adapter exposes 44.1 kHz as its native rate.  Keeping
-        # dmix at that rate avoids an unsupported hardware configuration.
-        rate 44100
+        pcm "hw:CARD=Device,DEV=0"
+        # The supported output rate for the tested USB PnP adapter.
+        rate 48000
         channels 2
         period_time 0
         period_size 1024
@@ -31,5 +30,5 @@ pcm.!default {
 
 ctl.!default {
     type hw
-    card @CARD@
+    card Device
 }

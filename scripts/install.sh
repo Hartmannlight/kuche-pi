@@ -51,6 +51,7 @@ install -m 0755 "$ROOT_DIR/bin/audio-buttons-daemon.py" /usr/local/lib/kuche-pi-
 install -m 0755 "$ROOT_DIR/bin/print-ente-label.py" /usr/local/lib/kuche-pi-audio/print-ente-label.py
 install -m 0755 "$ROOT_DIR/bin/audioctl.py" /usr/local/bin/audioctl
 install -m 0644 "$ROOT_DIR/config/audio-buttons.json" /etc/kuche-pi-audio/config.json
+install -m 0644 "$ROOT_DIR/config/snd-usb-audio.conf" /etc/modprobe.d/kuche-usb-audio.conf
 install -m 0644 "$ROOT_DIR/assets/labels/opened_am_bg_203.zpl" /usr/local/share/kuche-pi-audio/labels/opened_am_bg_203.zpl
 install -m 0644 "$ROOT_DIR/assets/labels/opened_am_print_template_203.zpl" /usr/local/share/kuche-pi-audio/labels/opened_am_print_template_203.zpl
 sed -e "s/@CARD@/$CARD/g" -e "s/@DEVICE@/$DEVICE/g" \
