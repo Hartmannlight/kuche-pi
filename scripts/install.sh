@@ -36,7 +36,7 @@ id "$USER_NAME" >/dev/null
 # stable alias and the lock-aware sender; failing early avoids a half-working
 # installation where every label press silently fails.
 [[ -x /usr/local/bin/zpl-send && -e /dev/zpl/ente ]] || {
-  echo "ZPL-Drucker fehlt. Zuerst ausführen: sudo bash ./scripts/setup-zpl-usb-parallel.sh (Name: ente)" >&2
+  echo "ZPL-Drucker fehlt. Zuerst den Alias 'ente' mit Hartmannlight/pi-init einrichten." >&2
   exit 1
 }
 

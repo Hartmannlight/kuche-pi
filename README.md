@@ -48,17 +48,16 @@ installiert.
    cd kuche-pi
    ```
 
-2. Den USB-Paralleladapter für den ZPL-Drucker verbinden und einmal dessen
-   stabile Gerätebezeichnung einrichten:
+2. Der ZPL-Drucker wird **nicht** von diesem Repository eingerichtet. Er muss
+   vorher über [pi-init](https://github.com/Hartmannlight/pi-init) installiert
+   sein und dort den stabilen Namen **`ente`** erhalten haben. Prüfe nur:
 
    ```bash
-   sudo bash ./scripts/setup-zpl-usb-parallel.sh
+   ls -l /dev/zpl/ente
+   command -v zpl-send
    ```
 
-   In den Abfragen den gewünschten Adapter auswählen und als stabilen Namen
-   exakt **`ente`** eingeben. Danach muss `/dev/zpl/ente` existieren und
-   `zpl-send ente DATEI.zpl` funktionieren. Das Script richtet dafür `usblp`,
-   die udev-Regel und den gesperrten Sender ein.
+   Beide Befehle müssen einen Pfad ausgeben.
 
 3. USB-Soundkarte verbinden und ihre Kartennummer nachsehen:
 
