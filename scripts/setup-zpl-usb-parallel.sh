@@ -27,7 +27,16 @@ fi
 if ! modprobe usblp; then warn "usblp konnte nicht geladen werden; prüfe Blacklists oder Kernel-Unterstützung."; fi
 udevadm settle || true
 
+# `declare -a` alone leaves arrays unset under `set -u`.  Initialise them so
+# the no-adapter check below can safely inspect their length.
 declare -a DEV USB VID PID SERIAL MFR PRODUCT
+DEV=()
+USB=()
+VID=()
+PID=()
+SERIAL=()
+MFR=()
+PRODUCT=()
 usb_parent() { local p; p="$(readlink -f "$1")"; while [[ "$p" != / ]]; do [[ -r "$p/idVendor" && -r "$p/idProduct" ]] && { printf '%s' "$p"; return; }; p="${p%/*}"; done; return 1; }
 attr() { [[ -r "$1" ]] && tr -d '\000\r\n' <"$1"; }
 shopt -s nullglob
