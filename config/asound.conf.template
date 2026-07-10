@@ -1,0 +1,30 @@
+# Created by kuche-pi-audio. CARD and DEVICE are filled in by install.sh.
+# Every player must use this logical device (or ALSA's default, defined below).
+pcm.dmix_usb {
+    type dmix
+    ipc_key 1024
+    ipc_perm 0660
+    slave {
+        pcm "hw:@CARD@,@DEVICE@"
+        rate 48000
+        channels 2
+        period_time 0
+        period_size 1024
+        buffer_size 4096
+    }
+}
+
+pcm.sharedout {
+    type plug
+    slave.pcm "dmix_usb"
+}
+
+pcm.!default {
+    type plug
+    slave.pcm "sharedout"
+}
+
+ctl.!default {
+    type hw
+    card @CARD@
+}

@@ -1,0 +1,21 @@
+[Unit]
+Description=Kitchen audio-button orchestrator
+After=sound.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@USER@
+Group=kuche-audio
+SupplementaryGroups=input audio
+RuntimeDirectory=kuche-pi-audio
+RuntimeDirectoryMode=0755
+ExecStart=/usr/local/lib/kuche-pi-audio/audio-buttons-daemon.py --config /etc/kuche-pi-audio/config.json
+Restart=always
+RestartSec=2
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

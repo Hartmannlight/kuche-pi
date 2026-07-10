@@ -1,0 +1,3 @@
+# The daemon discovers the keyboard by its F13-F20 capabilities.  This rule is
+# deliberately only a stable, human-readable symlink for diagnostics.
+SUBSYSTEM=="input", KERNEL=="event*", ENV{ID_INPUT_KEYBOARD}=="1", SYMLINK+="input/kuche-keyboard"

@@ -1,0 +1,37 @@
+{
+  "audio_device": "alsa/sharedout",
+  "mpv_binary": "/usr/bin/mpv",
+  "tagesschau_rss": "https://www.tagesschau.de/tagesschau_in_100_sekunden/podcast-ts100-audio-100~podcast.xml",
+  "radio_timeout_seconds": 21600,
+  "label_command": ["/usr/local/lib/kuche-pi-audio/print-ente-label.py", "--printer", "ente"],
+  "remote_sources": {
+    "sendspin": {
+      "stop_commands": [["sudo", "/bin/systemctl", "restart", "sendspin.service"]]
+    },
+    "spotify": {
+      "stop_commands": [["sudo", "/bin/systemctl", "restart", "raspotify.service"]]
+    }
+  },
+  "streams": {
+    "dlf_kultur": {
+      "kind": "radio",
+      "url": "https://st02.sslstream.dlf.de/dlf/02/128/mp3/stream.mp3?aggregator=web"
+    },
+    "swr1": {
+      "kind": "radio",
+      "url": "https://liveradio.swr.de/sw282p3/swr1bw/play.mp3"
+    },
+    "querfunk": {
+      "kind": "radio",
+      "url": "https://mp3.querfunk.de/qfhi"
+    },
+    "rock_antenne": {
+      "kind": "radio",
+      "url": "https://stream.rockantenne.de/rockantenne/stream/mp3"
+    },
+    "dlf": {
+      "kind": "radio",
+      "url": "https://st01.sslstream.dlf.de/dlf/01/128/mp3/stream.mp3?aggregator=web"
+    }
+  }
+}
