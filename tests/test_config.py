@@ -1,5 +1,6 @@
 import importlib.util
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 
@@ -49,10 +50,42 @@ class ConfigTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             labels.render(b"background", b"{{DATUM}}", "10.07.2026")
 
-    def test_label_printer_name_cannot_escape_device_directory(self):
-        self.assertEqual(labels.printer_device("ente"), Path("/dev/zpl/ente"))
+    def test_label_printer_name_cannot_escape_api_path(self):
+        labels.validate_printer_name("ente")
         with self.assertRaises(ValueError):
-            labels.printer_device("../not-a-printer")
+            labels.validate_printer_name("../not-a-printer")
+
+    def test_label_waits_for_graphic_before_submitting_print(self):
+        events = []
+
+        def submit(_agent_url, _printer, _payload, description):
+            events.append(("submit", description))
+            return description.lower()
+
+        def wait(_agent_url, _job_id, description, _timeout):
+            events.append(("wait", description))
+
+        with (
+            patch.object(labels, "submit_job", side_effect=submit),
+            patch.object(labels, "wait_for_transport", side_effect=wait),
+            patch.object(
+                labels.time,
+                "sleep",
+                side_effect=lambda seconds: events.append(("sleep", seconds)),
+            ),
+        ):
+            labels.send_to_printer("http://127.0.0.1:8080", "ente", b"graphic", b"label")
+
+        self.assertEqual(
+            events,
+            [
+                ("submit", "Grafik-Upload"),
+                ("wait", "Grafik-Upload"),
+                ("sleep", labels.GRAPHIC_SETTLE_SECONDS),
+                ("submit", "Tagesetikett"),
+                ("wait", "Tagesetikett"),
+            ],
+        )
 
     def test_shipped_zpl_assets_render_a_complete_job(self):
         root = Path(__file__).parents[1] / "assets" / "labels"

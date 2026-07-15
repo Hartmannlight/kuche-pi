@@ -48,18 +48,18 @@ installiert.
    cd kuche-pi
    ```
 
-2. Der ZPL-Drucker wird **nicht** von diesem Repository eingerichtet. Er muss
-   vorher über [pi-init](https://github.com/Hartmannlight/pi-init) installiert
-   sein und dort den stabilen Namen **`ente`** erhalten haben. Prüfe nur:
+2. Der ZPL-Drucker wird **nicht** von diesem Repository eingerichtet. Der
+   Rust-Treiber [ZebraTamer](https://github.com/Hartmannlight/ZebraTamer) muss
+   laufen und dort die Drucker-ID **`ente`** bereitstellen. Prüfe nur:
 
    ```bash
-   ls -l /dev/zpl/ente
-   sudo -u pi test -w /dev/zpl/ente && echo "pi darf drucken"
+   curl -fsS http://127.0.0.1:8080/healthz
+   curl -fsS http://127.0.0.1:8080/v1/printers
    ```
 
-   Der erste Befehl muss auf `/dev/usb/lp0` oder ähnlich zeigen; der zweite
-   muss `pi darf drucken` ausgeben. Der Labeldruck verwendet den Alias direkt
-   und benötigt kein separates Sender-Script.
+   Der zweite Aufruf muss einen Drucker mit `"id":"ente"` enthalten. Nur
+   ZebraTamer greift direkt auf `/dev/usb/lp*` zu; die Python-Schicht sendet
+   ihre ZPL-Jobs ausschließlich über die lokale Rust-API.
 
 3. USB-Soundkarte verbinden und ihre Kartennummer nachsehen:
 
@@ -80,6 +80,14 @@ installiert.
    durch die Ausgabe von `aplay -l`. Der Installer lädt nur die zwei genannten
    Upstream-Installer nach: [Sendspin](https://pypi.org/project/sendspin/) und
    [Raspotify](https://github.com/dtcooper/raspotify/blob/master/install.sh).
+
+   Derselbe Installer aktualisiert eine bestehende Installation ohne die
+   Upstream-Programme erneut zu installieren:
+
+   ```bash
+   git pull
+   sudo bash ./scripts/install.sh --user pi --card 1 --device 0
+   ```
 
 5. Beim Sendspin-Installer als Audio-Gerät **`default`** wählen. Das vom
    Installer erzeugte `/etc/asound.conf` leitet `default` über `dmix` zur
@@ -111,7 +119,7 @@ F14–F20 (Radio/Podcast) ──> mpv starten
 
 Sendspin startet remote ──> Hook: audioctl remote-start sendspin ──> mpv stoppen
 F13 ─────────────────────> mpv stoppen + beide Remote-Dienste neu starten
-F16 ─────────────────────> ZPL-Job für /dev/zpl/ente starten; keine Audio-Aktion
+F16 ─────────────────────> ZPL-Jobs über ZebraTamer starten; keine Audio-Aktion
 ```
 
 Ein „Restart“ für Sendspin/Raspotify ist bewusst gewählt: Er beendet zuverlässig
@@ -122,9 +130,11 @@ Der Dienst erhält nur für genau diese beiden Befehle ein eng begrenztes
 ## Labeldruck (F16)
 
 Die beiden bereitgestellten ZPL-Dateien sind als Assets enthalten. Bei jedem
-Druck lädt F16 zuerst `OPENLBL.GRF` in den Druckerspeicher und sendet danach
-das eigentliche Etikett. Dadurch funktioniert ein Druck auch direkt nach dem
-Einschalten des Druckers zuverlässig.
+Druck lädt F16 zuerst `OPENLBL.GRF` über ZebraTamer in den Druckerspeicher.
+Nach der Transportbestätigung wartet die Python-Schicht 250 ms, damit der
+LP 2824 Plus die Grafik wirklich in RAM ablegen kann. Erst danach wird das
+eigentliche Etikett als zweiter Rust-API-Job gesendet und ebenfalls bis zur
+Transportbestätigung verfolgt.
 
 `{{DATUM}}` wird automatisch mit dem lokalen Datum des Pi im Format
 `TT.MM` ersetzt, etwa `10.07`. Das Druckprogramm akzeptiert kein
@@ -141,22 +151,15 @@ Für eine Druckvorschau ohne Ausgabe an den Drucker:
 /usr/local/lib/kuche-pi-audio/print-ente-label.py --dry-run > label.zpl
 ```
 
-Die Hintergrundgrafik wird beim Start von `audio-buttons.service` einmal in
-den Drucker-RAM geladen. Der Tastendruck sendet danach nur noch das aktuelle
-Datum. Nach einem separaten Neustart des Druckers kann der Cache ohne
-Etikettendruck erneuert werden:
-
-```bash
-/usr/local/lib/kuche-pi-audio/print-ente-label.py --cache-only --refresh-cache
-```
-
 Der Druckprozess wird bewusst unabhängig vom Audio-Dienst gestartet und
-unterbricht nichts. Sollte F16 nicht drucken, prüfe zuerst:
+unterbricht nichts. Parallele Mehrfachauslösungen werden verhindert. Jeder
+erkannte Knopf sowie Erfolg oder Fehler des Druckprozesses steht im Journal.
+Sollte F16 nicht drucken, prüfe zuerst:
 
 ```bash
-ls -l /dev/zpl/ente
-id pi
-sudo -u pi test -w /dev/zpl/ente && echo "Druckerzugriff OK"
+curl -fsS http://127.0.0.1:8080/healthz
+curl -fsS http://127.0.0.1:8080/v1/printers
+journalctl -u audio-buttons -u zpl-agent -n 100 --no-pager
 ```
 
 ## Bedienung ohne Tastatur
@@ -212,6 +215,13 @@ systemctl status audio-buttons sendspin raspotify
 journalctl -u audio-buttons -u sendspin -u raspotify -n 100 --no-pager
 audioctl status
 ```
+
+Der Installer begrenzt persistente Journald-Protokolle auf 64 MiB und 14 Tage.
+Dadurch bleiben Kernel- und Dienstfehler nach einem echten Neustart erhalten,
+ohne die SD-Karte unbegrenzt mit Logs zu füllen. Sendspin wartet außerdem bis zu
+fünf Minuten auf die USB-Soundkarte und versucht es danach höchstens alle
+30 Sekunden erneut, statt die Audioerkennung dauerhaft in einer Lastschleife
+auszuführen.
 
 Falls keine Taste reagiert, prüfe zuerst, ob das System sie sieht:
 

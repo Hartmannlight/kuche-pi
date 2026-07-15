@@ -87,6 +87,7 @@ class AudioOrchestrator:
         self.source: str | None = None
         self.deadline: float | None = None
         self.mpv: asyncio.subprocess.Process | None = None
+        self.label_process: asyncio.subprocess.Process | None = None
         self.lock = asyncio.Lock()
         self.stopping = asyncio.Event()
 
@@ -96,6 +97,9 @@ class AudioOrchestrator:
             "source": self.source,
             "radio_stops_at": int(self.deadline) if self.deadline else None,
             "mpv_running": self.mpv is not None and self.mpv.returncode is None,
+            "label_print_running": (
+                self.label_process is not None and self.label_process.returncode is None
+            ),
         }
 
     async def run_command(self, command: list[str]) -> None:
@@ -170,14 +174,27 @@ class AudioOrchestrator:
         command = self.config.get("label_command", [])
         if not command:
             raise ValueError("label_command has not been configured")
-        # No await: printing never participates in audio ownership.
-        await asyncio.create_subprocess_exec(
+        if self.label_process is not None and self.label_process.returncode is None:
+            raise ValueError("Etikettendruck läuft bereits")
+        LOG.info("Starting label print: %s", command)
+        process = await asyncio.create_subprocess_exec(
             *command,
             stdin=asyncio.subprocess.DEVNULL,
             # Leave output connected to systemd's journal so a failed printer
             # job can be diagnosed without ever affecting audio playback.
             start_new_session=True,
         )
+        self.label_process = process
+        asyncio.create_task(self.watch_label_print(process))
+
+    async def watch_label_print(self, process: asyncio.subprocess.Process) -> None:
+        return_code = await process.wait()
+        if self.label_process is process:
+            self.label_process = None
+        if return_code == 0:
+            LOG.info("Label print completed successfully")
+        else:
+            LOG.warning("Label print failed with exit code %s", return_code)
 
     async def dispatch(self, request: dict[str, Any]) -> dict[str, Any]:
         action = request.get("action")
@@ -255,7 +272,9 @@ def keyboard_worker(orchestrator: AudioOrchestrator, loop: asyncio.AbstractEvent
                 if orchestrator.stopping.is_set():
                     break
                 if event.type == ecodes.EV_KEY and event.value == 1 and event.code in names:
-                    loop.call_soon_threadsafe(asyncio.create_task, orchestrator.dispatch(names[event.code]))
+                    action = names[event.code]
+                    LOG.info("Keyboard button %s dispatches %s", ecodes.KEY[event.code], action)
+                    loop.call_soon_threadsafe(asyncio.create_task, orchestrator.dispatch(action))
         except OSError as error:
             LOG.warning("Keyboard disconnected or unavailable: %s", error)
             time.sleep(2)

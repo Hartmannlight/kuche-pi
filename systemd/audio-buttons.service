@@ -1,7 +1,7 @@
 [Unit]
 Description=Kitchen audio-button orchestrator
-After=sound.target network-online.target
-Wants=network-online.target
+After=sound.target network-online.target zpl-agent.service
+Wants=network-online.target zpl-agent.service
 
 [Service]
 Type=simple
@@ -10,7 +10,6 @@ Group=kuche-audio
 SupplementaryGroups=input audio
 RuntimeDirectory=kuche-pi-audio
 RuntimeDirectoryMode=0755
-ExecStartPre=-/usr/local/lib/kuche-pi-audio/print-ente-label.py --cache-only --refresh-cache
 ExecStart=/usr/local/lib/kuche-pi-audio/audio-buttons-daemon.py --config /etc/kuche-pi-audio/config.json
 Restart=always
 RestartSec=2

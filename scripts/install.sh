@@ -32,23 +32,32 @@ done
 [[ -n "$USER_NAME" && -n "$CARD" ]] || { usage >&2; exit 2; }
 id "$USER_NAME" >/dev/null
 
-# F16 deliberately depends on the separate pi-init udev setup. It provides the
-# stable device alias; failing early avoids a half-working installation.
-[[ -e /dev/zpl/ente ]] || {
-  echo "ZPL-Drucker fehlt. Zuerst den Alias 'ente' mit Hartmannlight/pi-init einrichten." >&2
-  exit 1
-}
-
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 apt-get update
 apt-get install -y --no-install-recommends python3 python3-evdev mpv alsa-utils curl sudo
+
+# The Rust agent exclusively owns the printer device. Validate its local API
+# instead of requiring the obsolete /dev/zpl/ente alias.
+curl -fsS http://127.0.0.1:8080/healthz >/dev/null || {
+  echo "ZebraTamer ist nicht erreichbar. Zuerst zpl-agent installieren und starten." >&2
+  exit 1
+}
+curl -fsS http://127.0.0.1:8080/v1/printers | python3 -c '
+import json
+import sys
+
+printers = json.load(sys.stdin).get("data", [])
+if not any(printer.get("id") == "ente" for printer in printers):
+    raise SystemExit("ZebraTamer-Drucker-ID ente fehlt")
+' || exit 1
 
 groupadd --system --force kuche-audio
 usermod -aG input,audio,kuche-audio "$USER_NAME"
 install -d -m 0755 /etc/kuche-pi-audio /usr/local/lib/kuche-pi-audio /usr/local/share/kuche-pi-audio/labels
 install -m 0755 "$ROOT_DIR/bin/audio-buttons-daemon.py" /usr/local/lib/kuche-pi-audio/audio-buttons-daemon.py
 install -m 0755 "$ROOT_DIR/bin/print-ente-label.py" /usr/local/lib/kuche-pi-audio/print-ente-label.py
+install -m 0755 "$ROOT_DIR/bin/wait-for-usb-audio.sh" /usr/local/lib/kuche-pi-audio/wait-for-usb-audio.sh
 install -m 0755 "$ROOT_DIR/bin/audioctl.py" /usr/local/bin/audioctl
 install -m 0644 "$ROOT_DIR/config/audio-buttons.json" /etc/kuche-pi-audio/config.json
 install -m 0644 "$ROOT_DIR/config/snd-usb-audio.conf" /etc/modprobe.d/kuche-usb-audio.conf
@@ -59,6 +68,9 @@ sed -e "s/@CARD@/$CARD/g" -e "s/@DEVICE@/$DEVICE/g" \
 sed "s/@USER@/$USER_NAME/g" "$ROOT_DIR/systemd/audio-buttons.service" \
   > /etc/systemd/system/audio-buttons.service
 install -m 0644 "$ROOT_DIR/systemd/99-kuche-pi-audio.rules" /etc/udev/rules.d/99-kuche-pi-audio.rules
+install -d -m 0755 /etc/systemd/journald.conf.d /var/log/journal
+install -m 0644 "$ROOT_DIR/systemd/journald-kuche-pi.conf" \
+  /etc/systemd/journald.conf.d/50-kuche-pi-persistent.conf
 
 # Only the two restart operations used by the daemon are permitted without a
 # password. The daemon never gets unrestricted root access.
@@ -102,13 +114,25 @@ with open(path, "w", encoding="utf-8") as stream:
     stream.write("\n")
 PY
   chown sendspin:sendspin "$SETTINGS"
-  systemctl restart sendspin.service
+fi
+
+# Apply the USB-audio guard both to newly installed Sendspin and to an existing
+# installation when this updater is rerun without --with-sendspin.
+if systemctl list-unit-files sendspin.service --no-legend 2>/dev/null | grep -q '^sendspin.service'; then
+  install -d -m 0755 /etc/systemd/system/sendspin.service.d
+  install -m 0644 "$ROOT_DIR/systemd/sendspin-usb-audio.conf" \
+    /etc/systemd/system/sendspin.service.d/20-kuche-pi-usb-audio.conf
 fi
 
 udevadm control --reload-rules
 systemctl daemon-reload
-systemctl enable --now audio-buttons.service
+systemctl restart systemd-journald.service
+if systemctl list-unit-files sendspin.service --no-legend 2>/dev/null | grep -q '^sendspin.service'; then
+  systemctl restart sendspin.service
+fi
+systemctl enable audio-buttons.service
+systemctl restart audio-buttons.service
 echo
-echo "Installed. Reboot or reconnect the '$USER_NAME' login before testing the keyboard."
+echo "Installed or updated. Reboot or reconnect the '$USER_NAME' login after the first installation."
 echo "Test audio: speaker-test -D sharedout -c 2"
 echo "Service logs: journalctl -u audio-buttons -f"
