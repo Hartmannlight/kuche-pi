@@ -13,7 +13,9 @@ RuntimeDirectoryMode=0755
 ExecStart=/usr/local/lib/kuche-pi-audio/audio-buttons-daemon.py --config /etc/kuche-pi-audio/config.json
 Restart=always
 RestartSec=2
-NoNewPrivileges=true
+# The daemon has only two exact NOPASSWD systemctl commands in sudoers. Do not
+# set NoNewPrivileges here: it would make those deliberately scoped commands
+# fail before sudo can evaluate the allowlist.
 PrivateTmp=true
 ProtectHome=true
 

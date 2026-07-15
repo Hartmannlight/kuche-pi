@@ -125,7 +125,9 @@ F16 ─────────────────────> ZPL-Jobs ü
 Ein „Restart“ für Sendspin/Raspotify ist bewusst gewählt: Er beendet zuverlässig
 eine Wiedergabe, lässt den Client aber direkt wieder als Remote-Ziel verfügbar.
 Der Dienst erhält nur für genau diese beiden Befehle ein eng begrenztes
-`sudoers`-Recht, kein allgemeines Root-Recht.
+`sudoers`-Recht, kein allgemeines Root-Recht. Sendspins Stop-Zeit ist auf acht
+Sekunden begrenzt, damit ein blockierender Audiotreiber die Tastensteuerung
+nicht bis zum systemd-Standardtimeout von 90 Sekunden festhält.
 
 ## Labeldruck (F16)
 
