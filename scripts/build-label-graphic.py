@@ -32,7 +32,7 @@ def encode_graphic(source: Path, preview: Path | None = None) -> bytes:
         rows.append(row.hex().upper())
 
     size = BYTES_PER_ROW * HEIGHT
-    return f"~DGR:OPENLBL.GRF,{size},{BYTES_PER_ROW},".encode("ascii") + "".join(rows).encode("ascii") + b"\n"
+    return f"~DGE:OPENLBL.GRF,{size},{BYTES_PER_ROW},".encode("ascii") + "".join(rows).encode("ascii") + b"\n"
 
 
 def main() -> None:

@@ -55,6 +55,7 @@ if not any(printer.get("id") == "ente" for printer in printers):
 groupadd --system --force kuche-audio
 usermod -aG input,audio,kuche-audio "$USER_NAME"
 install -d -m 0755 /etc/kuche-pi-audio /usr/local/lib/kuche-pi-audio /usr/local/share/kuche-pi-audio/labels
+install -d -o "$USER_NAME" -g kuche-audio -m 0750 /var/lib/kuche-pi-audio
 install -m 0755 "$ROOT_DIR/bin/audio-buttons-daemon.py" /usr/local/lib/kuche-pi-audio/audio-buttons-daemon.py
 install -m 0755 "$ROOT_DIR/bin/print-ente-label.py" /usr/local/lib/kuche-pi-audio/print-ente-label.py
 install -m 0755 "$ROOT_DIR/bin/wait-for-usb-audio.sh" /usr/local/lib/kuche-pi-audio/wait-for-usb-audio.sh

@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import argparse
 from datetime import date
+import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import sys
@@ -25,6 +27,7 @@ DEFAULT_AGENT_URL = "http://127.0.0.1:8080"
 GRAPHIC_ACCEPT_TIMEOUT_SECONDS = 35
 LABEL_ACCEPT_TIMEOUT_SECONDS = 15
 GRAPHIC_SETTLE_SECONDS = 0.25
+CACHE_DIRECTORY = Path("/var/lib/kuche-pi-audio")
 
 
 def render_parts(background: bytes, template: bytes, label_date: str) -> tuple[bytes, bytes]:
@@ -33,6 +36,10 @@ def render_parts(background: bytes, template: bytes, label_date: str) -> tuple[b
         raise ValueError("Datum muss das Format TT.MM haben")
     if template.count(DATE_TOKEN) != 1:
         raise ValueError("Die ZPL-Vorlage muss {{DATUM}} genau einmal enthalten")
+    if background.startswith(b"~DGR:"):
+        background = b"~DGE:" + background[len(b"~DGR:") :]
+    elif not background.startswith(b"~DGE:"):
+        raise ValueError("Die Hintergrundgrafik ist kein ZPL-~DG-Objekt")
     graphic_job = background.rstrip(b"\r\n") + b"\r\n"
     label_job = template.replace(DATE_TOKEN, label_date.encode("ascii"))
     return graphic_job, label_job
@@ -46,6 +53,17 @@ def render(background: bytes, template: bytes, label_date: str) -> bytes:
 def validate_printer_name(printer: str) -> None:
     if not PRINTER_NAME.fullmatch(printer):
         raise ValueError("Ungültiger Druckername")
+
+
+def cache_marker(printer: str) -> Path:
+    validate_printer_name(printer)
+    return CACHE_DIRECTORY / f"{printer}.graphic-sha256"
+
+
+def write_cache_marker(path: Path, digest: str) -> None:
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    temporary.write_text(digest + "\n", encoding="ascii")
+    temporary.replace(path)
 
 
 def submit_job(agent_url: str, printer: str, payload: bytes, description: str) -> str:
@@ -101,19 +119,39 @@ def wait_for_transport(
         time.sleep(0.25)
 
 
-def send_to_printer(agent_url: str, printer: str, graphic_job: bytes, label_job: bytes) -> None:
-    """Upload artwork and print only after the LP 2824 Plus has settled."""
-    graphic_id = submit_job(agent_url, printer, graphic_job, "Grafik-Upload")
-    wait_for_transport(
-        agent_url,
-        graphic_id,
-        "Grafik-Upload",
-        GRAPHIC_ACCEPT_TIMEOUT_SECONDS,
-    )
-    # The PL2305 returns from write before the LP 2824 Plus has necessarily
-    # committed the ~DG graphic to RAM. The proven direct writer used the same
-    # delay; omitting it makes the printer blink but intermittently ignore ^XG.
-    time.sleep(GRAPHIC_SETTLE_SECONDS)
+def send_to_printer(
+    agent_url: str,
+    printer: str,
+    graphic_job: bytes,
+    label_job: bytes,
+    *,
+    cache_only: bool = False,
+    refresh_cache: bool = False,
+) -> None:
+    """Keep artwork in printer flash and submit only the small dated label."""
+    marker_path = cache_marker(printer)
+    graphic_digest = hashlib.sha256(graphic_job).hexdigest()
+    try:
+        cached_digest = marker_path.read_text(encoding="ascii").strip()
+    except OSError:
+        cached_digest = ""
+
+    if refresh_cache or cached_digest != graphic_digest:
+        graphic_id = submit_job(agent_url, printer, graphic_job, "Grafik-Upload")
+        wait_for_transport(
+            agent_url,
+            graphic_id,
+            "Grafik-Upload",
+            GRAPHIC_ACCEPT_TIMEOUT_SECONDS,
+        )
+        # Wait until the LP 2824 Plus has committed the E: flash object before
+        # recalling it. The PL2305 can finish its USB transfer slightly sooner.
+        time.sleep(GRAPHIC_SETTLE_SECONDS)
+        write_cache_marker(marker_path, graphic_digest)
+
+    if cache_only:
+        return
+
     label_id = submit_job(agent_url, printer, label_job, "Tagesetikett")
     wait_for_transport(
         agent_url,
@@ -129,10 +167,8 @@ def main() -> None:
     parser.add_argument("--agent-url", default=DEFAULT_AGENT_URL, help="zpl-agent Basis-URL")
     parser.add_argument("--date", default=date.today().strftime("%d.%m"), help="TT.MM; nur für einen Nachdruck")
     parser.add_argument("--dry-run", action="store_true", help="ZPL nur auf stdout ausgeben")
-    # Keep accepting the old service arguments during rolling upgrades. The
-    # API-backed implementation intentionally has no local cache marker.
-    parser.add_argument("--cache-only", action="store_true", help=argparse.SUPPRESS)
-    parser.add_argument("--refresh-cache", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--cache-only", action="store_true", help="Grafik laden, aber nicht drucken")
+    parser.add_argument("--refresh-cache", action="store_true", help="Grafik erneut in den Flash laden")
     arguments = parser.parse_args()
 
     try:
@@ -142,9 +178,14 @@ def main() -> None:
         if arguments.dry_run:
             sys.stdout.buffer.write(graphic_job + label_job)
             return
-        if arguments.cache_only:
-            return
-        send_to_printer(arguments.agent_url, arguments.printer, graphic_job, label_job)
+        send_to_printer(
+            arguments.agent_url,
+            arguments.printer,
+            graphic_job,
+            label_job,
+            cache_only=arguments.cache_only,
+            refresh_cache=arguments.refresh_cache,
+        )
     except (OSError, ValueError) as error:
         print(f"Etikett wurde nicht gedruckt: {error}", file=sys.stderr)
         raise SystemExit(1)

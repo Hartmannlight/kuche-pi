@@ -40,6 +40,18 @@ KEY_ACTIONS = {
     "KEY_F20": {"action": "labels"},
 }
 
+LOW_LATENCY_RADIO_OPTIONS = (
+    "--cache=yes",
+    "--cache-pause-initial=no",
+    "--cache-pause-wait=0.5",
+    "--cache-secs=2",
+    "--demuxer-readahead-secs=1",
+    "--demuxer-max-bytes=2MiB",
+    "--demuxer-lavf-probesize=32768",
+    "--demuxer-lavf-analyzeduration=0.25",
+    "--audio-buffer=0.1",
+)
+
 
 class ConfigurationError(ValueError):
     """Raised for a configuration that would be unsafe or unusable."""
@@ -78,6 +90,25 @@ def latest_tagesschau_url(feed_url: str) -> str:
         if element.tag.rsplit("}", 1)[-1] == "enclosure" and element.get("url"):
             return element.attrib["url"]
     raise RuntimeError("The Tagesschau RSS feed contains no playable enclosure")
+
+
+def mpv_command(config: dict[str, Any], url: str, *, low_latency: bool) -> list[str]:
+    command = [
+        config["mpv_binary"],
+        "--no-config",
+        "--no-video",
+        "--really-quiet",
+        "--no-terminal",
+        "--autoload-files=no",
+        "--audio-display=no",
+        "--ao=alsa",
+        f"--audio-device={config['audio_device']}",
+        "--idle=no",
+    ]
+    if low_latency:
+        command.extend(LOW_LATENCY_RADIO_OPTIONS)
+    command.append(url)
+    return command
 
 
 class AudioOrchestrator:
@@ -128,10 +159,14 @@ class AudioOrchestrator:
                 await process.wait()
 
     async def stop_remotes(self, except_source: str | None = None) -> None:
-        for name, remote in self.config["remote_sources"].items():
-            if name != except_source:
-                for command in remote["stop_commands"]:
-                    await self.run_command(command)
+        commands = [
+            command
+            for name, remote in self.config["remote_sources"].items()
+            if name != except_source
+            for command in remote["stop_commands"]
+        ]
+        if commands:
+            await asyncio.gather(*(self.run_command(command) for command in commands))
 
     async def stop_all(self) -> None:
         await self.stop_mpv()
@@ -139,10 +174,7 @@ class AudioOrchestrator:
         self.owner = self.source = self.deadline = None
 
     async def start_mpv(self, url: str, source: str, is_radio: bool) -> None:
-        command = [
-            self.config["mpv_binary"], "--no-video", "--really-quiet", "--no-terminal",
-            "--ao=alsa", f"--audio-device={self.config['audio_device']}", "--idle=no", url,
-        ]
+        command = mpv_command(self.config, url, low_latency=is_radio)
         LOG.info("Starting button source %s", source)
         self.mpv = await asyncio.create_subprocess_exec(
             *command, stdin=asyncio.subprocess.DEVNULL,

@@ -8,14 +8,14 @@ absichtlich gestarteten Quellen gleichzeitig aktiv.
 
 | Taste | Aktion |
 | --- | --- |
-| F13 | Alles stoppen (Button-Player, Sendspin, Spotify Connect) |
-| F14 | Neueste **Tagesschau in 100 Sekunden** abspielen |
-| F15 | Deutschlandfunk Kultur |
-| F16 | Tagesetikett auf dem Drucker **ente** drucken, ohne Audio anzutasten |
-| F17 | SWR1 Baden-Württemberg |
-| F18 | Querfunk |
-| F19 | ROCK ANTENNE |
-| F20 | Deutschlandfunk |
+| F13 | SWR1 Baden-Württemberg |
+| F14 | Alles stoppen (Button-Player, Sendspin, Spotify Connect) |
+| F15 | Querfunk |
+| F16 | Neueste **Tagesschau in 100 Sekunden** abspielen |
+| F17 | ROCK ANTENNE |
+| F18 | Deutschlandfunk Kultur |
+| F19 | Deutschlandfunk |
+| F20 | Tagesetikett auf dem Drucker **ente** drucken, ohne Audio anzutasten |
 
 Webradios werden nach sechs Stunden automatisch beendet. Die Tagesschau ist
 eine einzelne Podcastfolge und läuft deshalb nur bis zum Ende.
@@ -112,14 +112,14 @@ auf `sharedout`.
 ## Konfliktverhalten
 
 ```text
-F14–F20 (Radio/Podcast) ──> mpv starten
+Radio-/Podcast-Taste ─────> mpv mit kleinem Startpuffer starten
                                │
                                ├── Sendspin neu starten (Wiedergabe endet)
                                └── Raspotify neu starten (Wiedergabe endet)
 
 Sendspin startet remote ──> Hook: audioctl remote-start sendspin ──> mpv stoppen
-F13 ─────────────────────> mpv stoppen + beide Remote-Dienste neu starten
-F16 ─────────────────────> ZPL-Jobs über ZebraTamer starten; keine Audio-Aktion
+F14 ─────────────────────> mpv stoppen + beide Remote-Dienste neu starten
+F20 ─────────────────────> ZPL-Jobs über ZebraTamer starten; keine Audio-Aktion
 ```
 
 Ein „Restart“ für Sendspin/Raspotify ist bewusst gewählt: Er beendet zuverlässig
@@ -129,18 +129,22 @@ Der Dienst erhält nur für genau diese beiden Befehle ein eng begrenztes
 Sekunden begrenzt, damit ein blockierender Audiotreiber die Tastensteuerung
 nicht bis zum systemd-Standardtimeout von 90 Sekunden festhält.
 
-## Labeldruck (F16)
+Live-Radios verwenden ein begrenztes Low-Latency-Profil für Demuxer-, Netzwerk-
+und Audiopuffer. Die beiden Remote-Dienste werden parallel beendet, bevor `mpv`
+startet. Dadurch bleibt der Radiostart auch nach langer Pause kurz.
 
-Die beiden bereitgestellten ZPL-Dateien sind als Assets enthalten. Bei jedem
-Druck lädt F16 zuerst `OPENLBL.GRF` über ZebraTamer in den Druckerspeicher.
-Nach der Transportbestätigung wartet die Python-Schicht 250 ms, damit der
-LP 2824 Plus die Grafik wirklich in RAM ablegen kann. Erst danach wird das
-eigentliche Etikett als zweiter Rust-API-Job gesendet und ebenfalls bis zur
-Transportbestätigung verfolgt.
+## Labeldruck (F20)
+
+Die beiden bereitgestellten ZPL-Dateien sind als Assets enthalten. Die
+Python-Schicht lädt `OPENLBL.GRF` über ZebraTamer einmal in den persistenten
+Flash-Speicher `E:` des LP 2824 Plus und merkt sich die Prüfsumme. Bei späteren
+Drucken wird nur noch das etwa 120 Byte große Tagesetikett übertragen. Eine
+geänderte Grafik wird automatisch neu geladen; mit `--refresh-cache` lässt sich
+der Flash-Inhalt nach einem Druckertausch bewusst erneuern.
 
 `{{DATUM}}` wird automatisch mit dem lokalen Datum des Pi im Format
 `TT.MM` ersetzt, etwa `10.07`. Das Druckprogramm akzeptiert kein
-freies Datum über F16; dadurch kann kein ungültiger ZPL-Inhalt eingesetzt
+freies Datum über F20; dadurch kann kein ungültiger ZPL-Inhalt eingesetzt
 werden. Ein bewusstes Nachdrucken lässt sich so ausführen:
 
 ```bash
@@ -156,7 +160,7 @@ Für eine Druckvorschau ohne Ausgabe an den Drucker:
 Der Druckprozess wird bewusst unabhängig vom Audio-Dienst gestartet und
 unterbricht nichts. Parallele Mehrfachauslösungen werden verhindert. Jeder
 erkannte Knopf sowie Erfolg oder Fehler des Druckprozesses steht im Journal.
-Sollte F16 nicht drucken, prüfe zuerst:
+Sollte F20 nicht drucken, prüfe zuerst:
 
 ```bash
 curl -fsS http://127.0.0.1:8080/healthz

@@ -1,6 +1,7 @@
 import importlib.util
+import asyncio
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 from pathlib import Path
 
 
@@ -44,7 +45,7 @@ class ConfigTests(unittest.TestCase):
 
     def test_label_job_contains_date_and_background(self):
         result = labels.render(b"~DGR:OPENLBL.GRF,1,1,AA\n", b"^XA^FD{{DATUM}}^FS^XZ\n", "10.07")
-        self.assertEqual(result, b"~DGR:OPENLBL.GRF,1,1,AA\r\n^XA^FD10.07^FS^XZ\n")
+        self.assertEqual(result, b"~DGE:OPENLBL.GRF,1,1,AA\r\n^XA^FD10.07^FS^XZ\n")
 
     def test_label_job_rejects_bad_date(self):
         with self.assertRaises(ValueError):
@@ -55,7 +56,7 @@ class ConfigTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             labels.validate_printer_name("../not-a-printer")
 
-    def test_label_waits_for_graphic_before_submitting_print(self):
+    def test_label_caches_graphic_and_subsequent_print_skips_upload(self):
         events = []
 
         def submit(_agent_url, _printer, _payload, description):
@@ -65,7 +66,22 @@ class ConfigTests(unittest.TestCase):
         def wait(_agent_url, _job_id, description, _timeout):
             events.append(("wait", description))
 
+        cached_digest = ""
+        marker = MagicMock()
+
+        def read_marker(*_args, **_kwargs):
+            if not cached_digest:
+                raise FileNotFoundError
+            return cached_digest
+
+        def write_marker(_path, digest):
+            nonlocal cached_digest
+            cached_digest = digest
+
+        marker.read_text.side_effect = read_marker
         with (
+            patch.object(labels, "cache_marker", return_value=marker),
+            patch.object(labels, "write_cache_marker", side_effect=write_marker),
             patch.object(labels, "submit_job", side_effect=submit),
             patch.object(labels, "wait_for_transport", side_effect=wait),
             patch.object(
@@ -74,6 +90,7 @@ class ConfigTests(unittest.TestCase):
                 side_effect=lambda seconds: events.append(("sleep", seconds)),
             ),
         ):
+            labels.send_to_printer("http://127.0.0.1:8080", "ente", b"graphic", b"label")
             labels.send_to_printer("http://127.0.0.1:8080", "ente", b"graphic", b"label")
 
         self.assertEqual(
@@ -84,8 +101,21 @@ class ConfigTests(unittest.TestCase):
                 ("sleep", labels.GRAPHIC_SETTLE_SECONDS),
                 ("submit", "Tagesetikett"),
                 ("wait", "Tagesetikett"),
+                ("submit", "Tagesetikett"),
+                ("wait", "Tagesetikett"),
             ],
         )
+
+    def test_radio_mpv_command_uses_low_latency_profile(self):
+        config_path = Path(__file__).parents[1] / "config" / "audio-buttons.json"
+        config = daemon.load_config(config_path)
+        command = daemon.mpv_command(config, "https://radio.invalid/live.mp3", low_latency=True)
+        for option in daemon.LOW_LATENCY_RADIO_OPTIONS:
+            self.assertIn(option, command)
+
+        podcast_command = daemon.mpv_command(config, "https://radio.invalid/file.mp3", low_latency=False)
+        for option in daemon.LOW_LATENCY_RADIO_OPTIONS:
+            self.assertNotIn(option, podcast_command)
 
     def test_shipped_zpl_assets_render_a_complete_job(self):
         root = Path(__file__).parents[1] / "assets" / "labels"
@@ -94,10 +124,30 @@ class ConfigTests(unittest.TestCase):
             (root / "opened_am_print_template_203.zpl").read_bytes(),
             "10.07",
         )
-        self.assertTrue(result.startswith(b"~DGR:OPENLBL.GRF,9600,40,"))
+        self.assertTrue(result.startswith(b"~DGE:OPENLBL.GRF,9600,40,"))
         self.assertIn(b"^PW320", result)
         self.assertIn(b"^LL240", result)
+        self.assertIn(b"^XGE:OPENLBL.GRF", result)
         self.assertIn(b"^FD10.07^FS", result)
+
+
+class AsyncAudioTests(unittest.IsolatedAsyncioTestCase):
+    async def test_remote_stop_commands_start_concurrently(self):
+        config_path = Path(__file__).parents[1] / "config" / "audio-buttons.json"
+        orchestrator = daemon.AudioOrchestrator(daemon.load_config(config_path))
+        started = []
+        both_started = asyncio.Event()
+
+        async def run_command(command):
+            started.append(command)
+            if len(started) == 2:
+                both_started.set()
+            await asyncio.wait_for(both_started.wait(), timeout=0.5)
+
+        with patch.object(orchestrator, "run_command", side_effect=run_command):
+            await orchestrator.stop_remotes()
+
+        self.assertEqual(len(started), 2)
 
 
 if __name__ == "__main__":
