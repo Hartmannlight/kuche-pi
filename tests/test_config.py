@@ -106,16 +106,26 @@ class ConfigTests(unittest.TestCase):
             ],
         )
 
-    def test_radio_mpv_command_uses_low_latency_profile(self):
+    def test_persistent_mpv_uses_idle_ipc_player(self):
         config_path = Path(__file__).parents[1] / "config" / "audio-buttons.json"
         config = daemon.load_config(config_path)
-        command = daemon.mpv_command(config, "https://radio.invalid/live.mp3", low_latency=True)
-        for option in daemon.LOW_LATENCY_RADIO_OPTIONS:
-            self.assertIn(option, command)
+        command = daemon.mpv_server_command(config)
+        self.assertIn("--idle=yes", command)
+        self.assertIn("--gapless-audio=yes", command)
+        self.assertIn(f"--input-ipc-server={daemon.MPV_SOCKET_PATH}", command)
+        self.assertNotIn("https://radio.invalid/live.mp3", command)
 
-        podcast_command = daemon.mpv_command(config, "https://radio.invalid/file.mp3", low_latency=False)
-        for option in daemon.LOW_LATENCY_RADIO_OPTIONS:
-            self.assertNotIn(option, podcast_command)
+    def test_standby_source_is_local_silence(self):
+        self.assertTrue(daemon.MPV_SILENCE_URL.startswith("av://lavfi:anullsrc="))
+
+    def test_radio_load_forces_mp3_without_initial_cache(self):
+        options = daemon.mpv_load_options(low_latency=True)
+        self.assertEqual(options["cache"], "no")
+        self.assertEqual(options["demuxer-lavf-format"], "mp3")
+        self.assertEqual(options["demuxer-lavf-analyzeduration"], "0")
+
+        podcast_options = daemon.mpv_load_options(low_latency=False)
+        self.assertEqual(podcast_options["cache"], "yes")
 
     def test_shipped_zpl_assets_render_a_complete_job(self):
         root = Path(__file__).parents[1] / "assets" / "labels"

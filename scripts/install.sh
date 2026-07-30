@@ -108,6 +108,7 @@ import sys
 path = sys.argv[1]
 with open(path, encoding="utf-8") as stream:
     settings = json.load(stream)
+settings["audio_device"] = "default"
 settings["hook_start"] = "/usr/local/bin/audioctl remote-start sendspin"
 settings["hook_stop"] = "/usr/local/bin/audioctl remote-stop sendspin"
 with open(path, "w", encoding="utf-8") as stream:

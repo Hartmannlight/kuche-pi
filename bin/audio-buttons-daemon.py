@@ -29,6 +29,8 @@ except ImportError:  # pragma: no cover - Linux always provides grp.
 
 LOG = logging.getLogger("kuche_pi_audio")
 SOCKET_PATH = "/run/kuche-pi-audio/control.sock"
+MPV_SOCKET_PATH = "/run/kuche-pi-audio/mpv.sock"
+MPV_SILENCE_URL = "av://lavfi:anullsrc=r=44100:cl=stereo"
 KEY_ACTIONS = {
     "KEY_F13": {"action": "play", "source": "swr1"},
     "KEY_F14": {"action": "stop"},
@@ -40,17 +42,25 @@ KEY_ACTIONS = {
     "KEY_F20": {"action": "labels"},
 }
 
-LOW_LATENCY_RADIO_OPTIONS = (
-    "--cache=yes",
-    "--cache-pause-initial=no",
-    "--cache-pause-wait=0.5",
-    "--cache-secs=2",
-    "--demuxer-readahead-secs=1",
-    "--demuxer-max-bytes=2MiB",
-    "--demuxer-lavf-probesize=32768",
-    "--demuxer-lavf-analyzeduration=0.25",
-    "--audio-buffer=0.1",
-)
+LOW_LATENCY_RADIO_OPTIONS = {
+    "cache": "no",
+    "demuxer": "lavf",
+    "demuxer-lavf-format": "mp3",
+    "demuxer-lavf-probesize": "32",
+    "demuxer-lavf-analyzeduration": "0",
+    "audio-buffer": "0.05",
+}
+
+PODCAST_LOAD_OPTIONS = {
+    "cache": "yes",
+    "cache-pause-initial": "no",
+    "cache-secs": "2",
+    "demuxer": "lavf",
+    "demuxer-lavf-format": "mp3",
+    "demuxer-lavf-probesize": "32",
+    "demuxer-lavf-analyzeduration": "0",
+    "audio-buffer": "0.1",
+}
 
 
 class ConfigurationError(ValueError):
@@ -92,8 +102,9 @@ def latest_tagesschau_url(feed_url: str) -> str:
     raise RuntimeError("The Tagesschau RSS feed contains no playable enclosure")
 
 
-def mpv_command(config: dict[str, Any], url: str, *, low_latency: bool) -> list[str]:
-    command = [
+def mpv_server_command(config: dict[str, Any]) -> list[str]:
+    """Build the persistent idle mpv process used for all button sources."""
+    return [
         config["mpv_binary"],
         "--no-config",
         "--no-video",
@@ -103,12 +114,15 @@ def mpv_command(config: dict[str, Any], url: str, *, low_latency: bool) -> list[
         "--audio-display=no",
         "--ao=alsa",
         f"--audio-device={config['audio_device']}",
-        "--idle=no",
+        "--idle=yes",
+        "--keep-open=no",
+        "--gapless-audio=yes",
+        f"--input-ipc-server={MPV_SOCKET_PATH}",
     ]
-    if low_latency:
-        command.extend(LOW_LATENCY_RADIO_OPTIONS)
-    command.append(url)
-    return command
+
+
+def mpv_load_options(*, low_latency: bool) -> dict[str, str]:
+    return dict(LOW_LATENCY_RADIO_OPTIONS if low_latency else PODCAST_LOAD_OPTIONS)
 
 
 class AudioOrchestrator:
@@ -118,7 +132,9 @@ class AudioOrchestrator:
         self.source: str | None = None
         self.deadline: float | None = None
         self.mpv: asyncio.subprocess.Process | None = None
+        self.mpv_playing = False
         self.label_process: asyncio.subprocess.Process | None = None
+        self.background_tasks: set[asyncio.Task[None]] = set()
         self.lock = asyncio.Lock()
         self.stopping = asyncio.Event()
 
@@ -127,7 +143,9 @@ class AudioOrchestrator:
             "owner": self.owner,
             "source": self.source,
             "radio_stops_at": int(self.deadline) if self.deadline else None,
-            "mpv_running": self.mpv is not None and self.mpv.returncode is None,
+            "mpv_running": (
+                self.mpv_playing and self.mpv is not None and self.mpv.returncode is None
+            ),
             "label_print_running": (
                 self.label_process is not None and self.label_process.returncode is None
             ),
@@ -146,19 +164,122 @@ class AudioOrchestrator:
         except (FileNotFoundError, asyncio.TimeoutError) as error:
             LOG.warning("Could not execute %s: %s", command, error)
 
-    async def stop_mpv(self) -> None:
-        if self.mpv is None:
-            return
-        process, self.mpv = self.mpv, None
-        if process.returncode is None:
-            process.terminate()
-            try:
-                await asyncio.wait_for(process.wait(), timeout=3)
-            except asyncio.TimeoutError:
-                process.kill()
-                await process.wait()
+    async def mpv_request(self, command: list[Any]) -> dict[str, Any]:
+        reader, writer = await asyncio.open_unix_connection(MPV_SOCKET_PATH)
+        writer.write((json.dumps({"command": command}) + "\n").encode("utf-8"))
+        await writer.drain()
+        try:
+            while True:
+                raw = await asyncio.wait_for(reader.readline(), timeout=3)
+                if not raw:
+                    raise OSError("mpv closed its IPC connection")
+                response = json.loads(raw.decode("utf-8"))
+                if "error" in response:
+                    if response["error"] != "success":
+                        raise OSError(f"mpv command failed: {response['error']}")
+                    return response
+        finally:
+            writer.close()
+            await writer.wait_closed()
 
-    async def stop_remotes(self, except_source: str | None = None) -> None:
+    async def mpv_load_and_wait(
+        self, url: str, options: dict[str, str] | None = None
+    ) -> None:
+        """Load media and wait until mpv has actually resumed audio output."""
+        reader, writer = await asyncio.open_unix_connection(MPV_SOCKET_PATH)
+        command: list[Any] = ["loadfile", url, "replace"]
+        if options is not None:
+            command.extend([-1, options])
+        writer.write((json.dumps({"command": command}) + "\n").encode("utf-8"))
+        await writer.drain()
+        command_succeeded = False
+        playback_started = False
+        try:
+            while not (command_succeeded and playback_started):
+                raw = await asyncio.wait_for(reader.readline(), timeout=5)
+                if not raw:
+                    raise OSError("mpv closed its IPC connection")
+                response = json.loads(raw.decode("utf-8"))
+                if response.get("event") == "playback-restart":
+                    playback_started = True
+                if "error" in response:
+                    if response["error"] != "success":
+                        raise OSError(f"mpv command failed: {response['error']}")
+                    command_succeeded = True
+        finally:
+            writer.close()
+            await writer.wait_closed()
+
+    async def enter_mpv_standby(self) -> None:
+        """Keep ALSA primed with paused local silence without consuming CPU."""
+        await self.mpv_load_and_wait(MPV_SILENCE_URL)
+        await self.mpv_request(["set_property", "pause", True])
+
+    async def ensure_mpv(self) -> None:
+        if self.mpv is not None and self.mpv.returncode is None:
+            try:
+                await self.mpv_request(["get_property", "idle-active"])
+                return
+            except OSError:
+                self.mpv.terminate()
+                await self.mpv.wait()
+        self.mpv = None
+        self.mpv_playing = False
+        Path(MPV_SOCKET_PATH).unlink(missing_ok=True)
+        self.mpv = await asyncio.create_subprocess_exec(
+            *mpv_server_command(self.config),
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        for _ in range(200):
+            if self.mpv.returncode is not None:
+                raise OSError(f"mpv exited during startup ({self.mpv.returncode})")
+            try:
+                await self.mpv_request(["get_property", "idle-active"])
+                break
+            except (FileNotFoundError, ConnectionRefusedError, OSError):
+                await asyncio.sleep(0.05)
+        else:
+            raise OSError("mpv IPC socket did not become ready")
+        await self.enter_mpv_standby()
+        LOG.info("Persistent mpv player ready")
+
+    async def stop_mpv(self) -> None:
+        if self.mpv is None or self.mpv.returncode is not None:
+            self.mpv = None
+            self.mpv_playing = False
+            return
+        if self.mpv_playing:
+            try:
+                await self.enter_mpv_standby()
+            except OSError as error:
+                LOG.warning("Could not stop mpv via IPC: %s", error)
+                self.mpv.terminate()
+                await self.mpv.wait()
+                self.mpv = None
+        self.mpv_playing = False
+
+    async def shutdown_mpv(self) -> None:
+        await self.stop_mpv()
+        if self.mpv is not None and self.mpv.returncode is None:
+            self.mpv.terminate()
+            try:
+                await asyncio.wait_for(self.mpv.wait(), timeout=3)
+            except asyncio.TimeoutError:
+                self.mpv.kill()
+                await self.mpv.wait()
+        self.mpv = None
+        Path(MPV_SOCKET_PATH).unlink(missing_ok=True)
+
+    def run_command_background(self, command: list[str]) -> None:
+        task = asyncio.create_task(self.run_command(command))
+        self.background_tasks.add(task)
+        task.add_done_callback(self.background_tasks.discard)
+
+    async def stop_remotes(
+        self, except_source: str | None = None, *, wait: bool = True
+    ) -> None:
         commands = [
             command
             for name, remote in self.config["remote_sources"].items()
@@ -166,7 +287,11 @@ class AudioOrchestrator:
             for command in remote["stop_commands"]
         ]
         if commands:
-            await asyncio.gather(*(self.run_command(command) for command in commands))
+            if wait:
+                await asyncio.gather(*(self.run_command(command) for command in commands))
+            else:
+                for command in commands:
+                    self.run_command_background(command)
 
     async def stop_all(self) -> None:
         await self.stop_mpv()
@@ -174,18 +299,24 @@ class AudioOrchestrator:
         self.owner = self.source = self.deadline = None
 
     async def start_mpv(self, url: str, source: str, is_radio: bool) -> None:
-        command = mpv_command(self.config, url, low_latency=is_radio)
         LOG.info("Starting button source %s", source)
-        self.mpv = await asyncio.create_subprocess_exec(
-            *command, stdin=asyncio.subprocess.DEVNULL,
-            stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+        await self.ensure_mpv()
+        await self.mpv_request(
+            ["loadfile", url, "replace", -1, mpv_load_options(low_latency=is_radio)]
         )
+        await self.mpv_request(["set_property", "pause", False])
+        self.mpv_playing = True
         self.owner, self.source = "button", source
         self.deadline = time.time() + self.config.get("radio_timeout_seconds", 21600) if is_radio else None
 
     async def play(self, source: str) -> None:
+        already_button_owned = self.owner == "button"
         await self.stop_mpv()
-        await self.stop_remotes()
+        if not already_button_owned:
+            # systemctl restart can take several seconds although the old
+            # player releases ALSA almost immediately. Start those bounded
+            # operations concurrently and do not delay the local stream.
+            await self.stop_remotes(wait=False)
         if source == "tagesschau":
             url = await asyncio.to_thread(latest_tagesschau_url, self.config["tagesschau_rss"])
             await self.start_mpv(url, source, False)
@@ -270,6 +401,7 @@ class AudioOrchestrator:
             async with self.lock:
                 if self.mpv is not None and self.mpv.returncode is not None:
                     self.mpv = None
+                    self.mpv_playing = False
                     if self.owner == "button":
                         self.owner = self.source = self.deadline = None
                 if self.owner == "button" and self.deadline and time.time() >= self.deadline:
@@ -332,6 +464,10 @@ async def run(config: dict[str, Any]) -> None:
         LOG.warning("Group 'kuche-audio' does not exist; socket keeps service group")
     loop = asyncio.get_running_loop()
     threading.Thread(target=keyboard_worker, args=(orchestrator, loop), daemon=True).start()
+    try:
+        await orchestrator.ensure_mpv()
+    except OSError as error:
+        LOG.warning("Could not prewarm mpv; the first play will retry: %s", error)
     for number in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(number, orchestrator.stopping.set)
     timeout_task = asyncio.create_task(orchestrator.watch_timeout())
@@ -339,6 +475,7 @@ async def run(config: dict[str, Any]) -> None:
     await orchestrator.stopping.wait()
     timeout_task.cancel()
     await orchestrator.stop_all()
+    await orchestrator.shutdown_mpv()
     server.close()
     await server.wait_closed()
     Path(SOCKET_PATH).unlink(missing_ok=True)
